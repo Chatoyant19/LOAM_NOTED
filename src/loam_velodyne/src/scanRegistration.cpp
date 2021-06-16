@@ -471,6 +471,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
   //获得有效范围内的点的数量
   cloudSize = count;
 
+  // 消除非匀速运动畸变后的所有的点云点
   pcl::PointCloud<PointType>::Ptr laserCloud(new pcl::PointCloud<PointType>());
   for (int i = 0; i < N_SCANS; i++) {  //将所有的点按照线号从小到大放入一个容器
     *laserCloud += laserCloudScans[i];
@@ -497,6 +498,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
                   laserCloud->points[i + 3].z + laserCloud->points[i + 4].z +
                   laserCloud->points[i + 5].z;
     //曲率计算
+    // 和论文有出入！因为在实际应用中，我们只需要比较曲率大小，所以不需要计算具体的曲率数值
     cloudCurvature[i] = diffX * diffX + diffY * diffY + diffZ * diffZ;
     //记录曲率点的索引
     cloudSortInd[i] = i;
@@ -744,6 +746,14 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     // less flat点汇总
     surfPointsLessFlat += surfPointsLessFlatScanDS;
   }
+
+  // test
+  std::cout << "check cornerPointsSharp'size: " << cornerPointsSharp.size()
+            << " is 192?" << std::endl;
+  std::cout << "check cornerPointsLessSharp's size: "
+            << cornerPointsLessSharp.size() << " is 1920 or 2112" << std::endl;
+  std::cout << "check surfPointsFlat'size: " << surfPointsFlat.size()
+            << " is 384?" << std::endl;
 
   // publich消除非匀速运动畸变后的所有的点
   sensor_msgs::PointCloud2 laserCloudOutMsg;
