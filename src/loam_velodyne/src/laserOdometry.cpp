@@ -386,6 +386,7 @@ void laserCloudSharpHandler(
   newCornerPointsSharp = true;
 }
 
+// 接收less sharp points数据=>cornerPointsLessSharp
 void laserCloudLessSharpHandler(
     const sensor_msgs::PointCloud2ConstPtr& cornerPointsLessSharp2) {
   timeCornerPointsLessSharp = cornerPointsLessSharp2->header.stamp.toSec();
@@ -398,6 +399,7 @@ void laserCloudLessSharpHandler(
   newCornerPointsLessSharp = true;
 }
 
+// 接收surf points数据=>surfPointsFlat
 void laserCloudFlatHandler(
     const sensor_msgs::PointCloud2ConstPtr& surfPointsFlat2) {
   timeSurfPointsFlat = surfPointsFlat2->header.stamp.toSec();
@@ -409,6 +411,7 @@ void laserCloudFlatHandler(
   newSurfPointsFlat = true;
 }
 
+// 接收less surf points数据=>surfPointsLessFlat
 void laserCloudLessFlatHandler(
     const sensor_msgs::PointCloud2ConstPtr& surfPointsLessFlat2) {
   timeSurfPointsLessFlat = surfPointsLessFlat2->header.stamp.toSec();
@@ -421,7 +424,7 @@ void laserCloudLessFlatHandler(
   newSurfPointsLessFlat = true;
 }
 
-//接收全部点
+//接收全部点=>laserCloudFullRes
 void laserCloudFullResHandler(
     const sensor_msgs::PointCloud2ConstPtr& laserCloudFullRes2) {
   timeLaserCloudFullRes = laserCloudFullRes2->header.stamp.toSec();
@@ -433,7 +436,7 @@ void laserCloudFullResHandler(
   newLaserCloudFullRes = true;
 }
 
-//接收imu消息
+//接收imu消息=>imuTrans
 void imuTransHandler(const sensor_msgs::PointCloud2ConstPtr& imuTrans2) {
   timeImuTrans = imuTrans2->header.stamp.toSec();
 
@@ -697,9 +700,9 @@ int main(int argc, char** argv) {
               float z2 = tripod2.z;
 
               //向量OA = (x0 - x1, y0 - y1, z0 - z1), 向量OB = (x0 - x2, y0 -
-              //y2, z0 - z2)，向量AB = （x1 - x2, y1 - y2, z1 - z2） 向量OA
-              //OB的向量积(即叉乘)为： |  i      j      k  | |x0-x1  y0-y1
-              //z0-z1| |x0-x2  y0-y2  z0-z2| 模为：
+              // y2, z0 - z2)，向量AB = （x1 - x2, y1 - y2, z1 - z2） 向量OA
+              // OB的向量积(即叉乘)为： |  i      j      k  | |x0-x1  y0-y1
+              // z0-z1| |x0-x2  y0-y2  z0-z2| 模为：
               float a012 =
                   sqrt(((x0 - x1) * (y0 - y2) - (x0 - x2) * (y0 - y1)) *
                            ((x0 - x1) * (y0 - y2) - (x0 - x2) * (y0 - y1)) +
@@ -855,8 +858,8 @@ int main(int argc, char** argv) {
                   laserCloudSurfLast->points[pointSearchSurfInd3[i]];  // C点
 
               //向量AB = (tripod2.x - tripod1.x, tripod2.y - tripod1.y,
-              //tripod2.z - tripod1.z) 向量AC = (tripod3.x - tripod1.x,
-              //tripod3.y - tripod1.y, tripod3.z - tripod1.z)
+              // tripod2.z - tripod1.z) 向量AC = (tripod3.x - tripod1.x,
+              // tripod3.y - tripod1.y, tripod3.z - tripod1.z)
 
               //向量AB AC的向量积（即叉乘），得到的是法向量
               // x轴方向分向量i

@@ -14,6 +14,11 @@ process:
   lidar:
     特征点提取，线特征，面特征
 
+laserOdometry
+input:
+/laser_cloud_sharp
+output:
+
 
 线性插值：
 已知（x0, y0), (x1, y1), 计算[x0, x1]区间内某一点ｘ对应的ｙ，
