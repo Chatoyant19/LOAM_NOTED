@@ -131,8 +131,10 @@ ros::Publisher pubImuTrans;
 //计算局部坐标系下点云中的点相对第一个开始点的由于加减速运动产生的位移畸变
 void ShiftToStartIMU(float pointTime) {
   //计算相对于第一个点由于加减速产生的畸变位移(全局坐标系下畸变位移量delta_Tg)
+  // 可以理解为这段时间里（当前点相对于起始点的时间段），因为加速度产生的距离
   // imuShiftFromStartCur = imuShiftCur - (imuShiftStart + imuVeloStart *
   // pointTime)
+  // ？？？为什么要-v0t？
   imuShiftFromStartXCur =
       imuShiftXCur - imuShiftXStart - imuVeloXStart * pointTime;
   imuShiftFromStartYCur =
@@ -141,7 +143,7 @@ void ShiftToStartIMU(float pointTime) {
       imuShiftZCur - imuShiftZStart - imuVeloZStart * pointTime;
 
   /********************************************************************************
-  Rz(pitch).inverse * Rx(pitch).inverse * Ry(yaw).inverse * delta_Tg
+  Rz(roll).inverse * Rx(pitch).inverse * Ry(yaw).inverse * delta_Tg
   transfrom from the global frame to the local frame
   *********************************************************************************/
 
@@ -157,7 +159,7 @@ void ShiftToStartIMU(float pointTime) {
   float y2 = cos(imuPitchStart) * y1 + sin(imuPitchStart) * z1;
   float z2 = -sin(imuPitchStart) * y1 + cos(imuPitchStart) * z1;
 
-  //绕z轴旋转(-imuRollStart)，即Rz(pitch).inverse
+  //绕z轴旋转(-imuRollStart)，即Rz(roll).inverse
   imuShiftFromStartXCur = cos(imuRollStart) * x2 + sin(imuRollStart) * y2;
   imuShiftFromStartYCur = -sin(imuRollStart) * x2 + cos(imuRollStart) * y2;
   imuShiftFromStartZCur = z2;
@@ -195,6 +197,7 @@ void VeloToStartIMU() {
 
 //去除点云加减速产生的位移畸变
 void TransformToStartIMU(PointType* p) {
+  // p_s = R_s_w*R_w_c* p_c + t_s_c
   /********************************************************************************
     Ry*Rx*Rz*Pl, transform point to the global frame
   *********************************************************************************/
@@ -246,7 +249,10 @@ void AccumulateIMUShift() {
   float accZ = imuAccZ[imuPointerLast];
 
   //将当前时刻的加速度值绕交换过的ZXY固定轴（原XYZ）分别旋转(roll, pitch,
-  // yaw)角，转换得到世界坐标系下的加速度值(right hand rule) 绕z轴旋转(roll)
+  // yaw)角，转换得到世界坐标系下的加速度值(right hand rule)
+  // 参考https://blog.csdn.net/weixin_44492854/article/details/109249662，得到世界坐标系下的加速度值
+  // V_W = R_W_I * V_I
+  // 绕z轴旋转(roll)
   float x1 = cos(roll) * accX - sin(roll) * accY;
   float y1 = sin(roll) * accX + cos(roll) * accY;
   float z1 = accZ;
@@ -302,11 +308,14 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
   //消息转换成pcl数据存放
   pcl::fromROSMsg(*laserCloudMsg, laserCloudIn);
   std::vector<int> indices;
+  // step1:
+  // 点云预处理，首先过滤无效点，然后计算当前帧点云起始点和结束点的旋转角。
   //移除空点
   pcl::removeNaNFromPointCloud(laserCloudIn, laserCloudIn, indices);
   //点云点的数量
   int cloudSize = laserCloudIn.points.size();
   // lidar
+  // 计算每一帧点云起始点和结束点的旋转角是为了计算点云数据中每个点在本次扫描点云数据中的相对位置，从而得到每个点获取的时间relTime,为后面IMU插值做准备
   // scan开始点的旋转角,atan2范围[-pi,+pi],计算旋转角时取负号是因为velodyne是顺时针旋转
   float startOri = -atan2(laserCloudIn.points[0].y, laserCloudIn.points[0].x);
   // lidar scan结束点的旋转角，加2*pi使点云旋转周期为2*pi
@@ -316,12 +325,18 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
 
   //结束方位角与开始方位角差值控制在(PI,3*PI)范围，允许lidar不是一个圆周扫描
   //正常情况下在这个范围内：pi < endOri - startOri < 3*pi，异常则修正
+  //为什么结束方位角与开始方位角差值控制在(PI,3*PI)范围？因为lidar每个sweep并不能保证刚好扫的是一个圆周，起始点可能的范围在-PI/2～PI/2,
+  //终止点可能的范围在2*PI-PI/2~2*PI+PI/2
   if (endOri - startOri > 3 * M_PI) {
     endOri -= 2 * M_PI;
   } else if (endOri - startOri < M_PI) {
     endOri += 2 * M_PI;
   }
+
+  // step 2: 点云去畸变处理并根据仰角将点云点归类到不同的线束中
   // lidar扫描线是否旋转过半
+  // halfPassed这个变量的作用：用来确定点的旋转角度是ori还是2*PI+ori
+  // 一个sweep中返回的点是按时间顺序排列的，所以时间靠前的就是一开始扫描的，角度是ori，时间靠后的就是最后扫描的，角度是ori+2*PI
   bool halfPassed = false;
   int count = cloudSize;
   PointType point;
@@ -332,9 +347,9 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     point.y = laserCloudIn.points[i].z;
     point.z = laserCloudIn.points[i].x;
 
-    //计算点的仰角(根据lidar文档垂直角计算公式),根据仰角排列激光线号，velodyne每两个scan之间间隔2度
+    //计算点的仰角(根据lidar文档垂直角计算公式),根据仰角排列激光线号（查看VLP-16的用户手册），velodyne每两个scan之间间隔2度
     float angle = atan(point.y / sqrt(point.x * point.x + point.z * point.z)) *
-                  180 / M_PI;
+                  180 / M_PI;  // atan()返回的范围是[-PI/2, PI/2]
     int scanID;
     //仰角四舍五入(加减0.5截断效果等于四舍五入)
     int roundedAngle = int(angle + (angle < 0.0 ? -0.5 : +0.5));
@@ -350,7 +365,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     }
 
     //该点的旋转角
-    float ori = -atan2(point.x, point.z);
+    float ori = -atan2(point.x, point.z);  // atan()返回的范围是[-PI, PI]
     if (!halfPassed) {  //根据扫描线是否旋转过半选择与起始位置还是终止位置进行差值计算，从而进行补偿
       //确保-pi/2 < ori - startOri < 3*pi/2
       if (ori < startOri - M_PI / 2) {
@@ -379,6 +394,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     //点强度=线号+点相对时间（即一个整数+一个小数，整数部分是线号，小数部分是该点的相对时间）,匀速扫描：根据当前扫描的角度和扫描周期计算相对扫描起始位置的时间
     point.intensity = scanID + scanPeriod * relTime;
 
+    // 点云运动补偿
     //点时间=点云时间+周期时间
     if (imuPointerLast >= 0) {  //如果收到IMU数据,使用IMU矫正点云畸变
       float pointTime = relTime * scanPeriod;  //计算点的周期时间
@@ -392,7 +408,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
 
       if (timeScanCur + pointTime >
           imuTime
-              [imuPointerFront]) {  //没找到,此时imuPointerFront==imtPointerLast,只能以当前收到的最新的IMU的速度，位移，欧拉角作为当前点的速度，位移，欧拉角使用
+              [imuPointerFront]) {  //没找到,此时imuPointerFront==imtPointerLast,只能以当前收到的最新的IMU的速度，位移，欧拉角作为当前点的速度，位移，欧拉角(世界坐标系下)使用
         imuRollCur = imuRoll[imuPointerFront];
         imuPitchCur = imuPitch[imuPointerFront];
         imuYawCur = imuYaw[imuPointerFront];
@@ -404,10 +420,13 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
         imuShiftXCur = imuShiftX[imuPointerFront];
         imuShiftYCur = imuShiftY[imuPointerFront];
         imuShiftZCur = imuShiftZ[imuPointerFront];
-      } else {  //找到了点云时间戳小于IMU时间戳的IMU位置,则该点必处于imuPointerBack和imuPointerFront之间，据此线性插值，计算点云点的速度，位移和欧拉角
+      } else {  //找到了点云时间戳小于IMU时间戳的IMU位置,则该点必处于imuPointerBack和imuPointerFront之间，据此线性插值，计算点云点的速度，位移和欧拉角(世界坐标系下)
+        // imuTime[imuPointerBack] < timeScanCur + pointTime <
+        // imuTime[imuPointerFront]
         int imuPointerBack =
             (imuPointerFront + imuQueLength - 1) % imuQueLength;
         //按时间距离计算权重分配比率,也即线性插值
+        // 线性插值：y = (x1-x)/(x1-x0)*y0 + (x-x0)/(x1-x0)*y1
         float ratioFront = (timeScanCur + pointTime - imuTime[imuPointerBack]) /
                            (imuTime[imuPointerFront] - imuTime[imuPointerBack]);
         float ratioBack = (imuTime[imuPointerFront] - timeScanCur - pointTime) /
@@ -458,6 +477,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
         imuShiftYStart = imuShiftYCur;
         imuShiftZStart = imuShiftZCur;
       } else {  //计算之后每个点相对于第一个点的由于加减速非匀速运动产生的位移速度畸变，并对点云中的每个点位置信息重新补偿矫正
+        // 将世界坐标系下点云点的速度，位移和欧拉角转换到IMU起始坐标系下
         ShiftToStartIMU(pointTime);
         VeloToStartIMU();
         TransformToStartIMU(&point);
@@ -465,7 +485,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     }
     // 分线存储
     laserCloudScans[scanID].push_back(
-        point);  //将每个补偿矫正的点放入对应线号的容器
+        point);  //将每个补偿矫正的点放入对应线号的容器，现在存的是相对于其实坐标的点
   }
 
   //获得有效范围内的点的数量
@@ -508,6 +528,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
     cloudLabel[i] = 0;
 
     //每个scan，只有第一个符合的点会进来，因为每个scan的点都在一起存放
+    // int(laserCloud->points[i].intensity) = laserCloud->points[i]的scanID
     if (int(laserCloud->points[i].intensity) != scanCount) {
       scanCount =
           int(laserCloud->points[i].intensity);  //控制每个scan只进入第一个点
@@ -817,6 +838,10 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg) {
 }
 
 //接收imu消息，imu坐标系为x轴向前，y轴向右，z轴向上的右手坐标系
+// input：IMU坐标系三个轴相对于世界坐标系的欧拉角和三个轴上的加速度
+// 但是由于加速度会受到重力的影响，所以首先得去除重力的影响
+// 在去除重力影响后，根据IMU坐标系和世界坐标系的关系，将IMU三轴上的加速度变换到世界坐标系下，计算得到世界坐标系三轴上的加速度
+// 然后根据加速度，速度，位移运算公式计算每一帧IMU数据在世界坐标系下对应的位移和速度
 void imuHandler(const sensor_msgs::Imu::ConstPtr& imuIn) {
   double roll, pitch, yaw;
   tf::Quaternion orientation;
@@ -827,6 +852,7 @@ void imuHandler(const sensor_msgs::Imu::ConstPtr& imuIn) {
   // is in the global frame
   tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
 
+  // LOAM中消除重力的影响https://blog.csdn.net/weixin_44492854/article/details/109249662
   //减去重力的影响,求出xyz方向的加速度实际值，并进行坐标轴交换，统一到z轴向前,x轴向左的右手坐标系,
   //交换过后RPY对应fixed axes ZXY(RPY---ZXY)。Now R =
   // Ry(yaw)*Rx(pitch)*Rz(roll).

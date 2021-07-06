@@ -467,6 +467,7 @@ int main(int argc, char** argv) {
   ros::init(argc, argv, "laserOdometry");
   ros::NodeHandle nh;
 
+  // get cornerPointsSharp
   ros::Subscriber subCornerPointsSharp = nh.subscribe<sensor_msgs::PointCloud2>(
       "/laser_cloud_sharp", 2, laserCloudSharpHandler);
 
@@ -474,6 +475,7 @@ int main(int argc, char** argv) {
       nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 2,
                                              laserCloudLessSharpHandler);
 
+  // get surfPointsFlat
   ros::Subscriber subSurfPointsFlat = nh.subscribe<sensor_msgs::PointCloud2>(
       "/laser_cloud_flat", 2, laserCloudFlatHandler);
 
