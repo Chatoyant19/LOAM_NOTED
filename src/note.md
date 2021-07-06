@@ -1,4 +1,4 @@
-scanRegistration
+1.scanRegistration
 input: 原始的imu数据和原始的lidar数据
 output: 
   /velodyne_cloud_2(消除非匀速运动畸变后的所有点云的点)
@@ -19,7 +19,7 @@ process:
       点云运动补偿是做什么的？是把当前点云坐标系下的点投影到点云起始点（这个起始点是每一帧点云即每一个sweep的起始点）坐标系下
     3.提取点特征，分为平面特征和线特征:根据曲率...
 
-laserOdometry
+2.laserOdometry
 input:
   /laser_cloud_sharp
   /laser_cloud_flat
